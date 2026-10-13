@@ -28,7 +28,7 @@ function slugify(s: string) {
 }
 
 const empty: ProductInput = {
-  name: "", slug: "", collection: "", description: "", finish: "", thickness: "",
+  name: "", slug: "", sku: "", productCode: "", collection: "", description: "", finish: "", thickness: "",
   sizes: [], material: "", color: "", texture: "", applications: [],
   lifestyleImage: "", textureImage: "", images: [], video: "", brochureUrl: "",
   tag: "", aspect: "square", relatedIds: [], categoryId: null, brandId: null, collectionId: null,
@@ -41,6 +41,8 @@ export function ProductForm({ product, onSuccess }: { product: ProductRow | null
       ? {
           name: product.name,
           slug: product.slug,
+          sku: product.sku ?? "",
+          productCode: product.productCode ?? "",
           collection: product.collection ?? "",
           description: product.description ?? "",
           finish: product.finish ?? "",
@@ -73,7 +75,7 @@ export function ProductForm({ product, onSuccess }: { product: ProductRow | null
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [options, setOptions] = useState<{
-    categories: { id: string; name: string }[];
+    categories: { id: string; name: string; brandId: string | null }[];
     brands: { id: string; name: string }[];
     collections: { id: string; name: string }[];
     products: { id: string; name: string }[];
@@ -132,6 +134,10 @@ export function ProductForm({ product, onSuccess }: { product: ProductRow | null
           />
           <AField label="Slug" required value={values.slug} onChange={(e) => { setSlugTouched(true); setValues((v) => ({ ...v, slug: e.target.value })); }} error={errors.slug} />
         </div>
+        <div className="grid grid-cols-2 gap-4">
+          <AField label="SKU" value={values.sku} onChange={(e) => setValues((v) => ({ ...v, sku: e.target.value }))} error={errors.sku} hint="Unique per product. For another size or finish, add a variant instead." />
+          <AField label="Product code" value={values.productCode} onChange={(e) => setValues((v) => ({ ...v, productCode: e.target.value }))} error={errors.productCode} hint="Manufacturer article code, if different" />
+        </div>
         {/* Collection is a real relation. It used to be free text, which meant
             the same range was retyped per product and never matched a
             Collection row — so brand pages could not group by it. */}
@@ -179,13 +185,38 @@ export function ProductForm({ product, onSuccess }: { product: ProductRow | null
       <section className="space-y-5 border-t border-white/8 pt-6">
         <p className="text-eyebrow text-gold">Organisation</p>
         <div className="grid grid-cols-2 gap-4">
-          <ASelect label="Category" value={values.categoryId ?? ""} onChange={(e) => setValues((v) => ({ ...v, categoryId: e.target.value || null }))}>
-            <option value="">None</option>
-            {options.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </ASelect>
-          <ASelect label="Brand" value={values.brandId ?? ""} onChange={(e) => setValues((v) => ({ ...v, brandId: e.target.value || null }))}>
+          <ASelect
+            label="Brand"
+            value={values.brandId ?? ""}
+            onChange={(e) => {
+              const brandId = e.target.value || null;
+              setValues((v) => {
+                // Changing brand drops a category that belongs to a different brand,
+                // rather than leaving a mismatch for the server to reject on save.
+                const cat = options.categories.find((c) => c.id === v.categoryId);
+                const keep = !cat?.brandId || cat.brandId === brandId;
+                return { ...v, brandId, categoryId: keep ? v.categoryId : null };
+              });
+            }}
+          >
             <option value="">None</option>
             {options.brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </ASelect>
+          <ASelect
+            label="Category / subcategory"
+            value={values.categoryId ?? ""}
+            onChange={(e) => {
+              const categoryId = e.target.value || null;
+              const cat = options.categories.find((c) => c.id === categoryId);
+              // Picking a brand-specific category sets the brand to match.
+              setValues((v) => ({ ...v, categoryId, brandId: cat?.brandId ?? v.brandId }));
+            }}
+            hint={values.brandId ? "Shows this brand's categories and shared ones." : "Pick a brand to see only its categories."}
+          >
+            <option value="">None</option>
+            {options.categories
+              .filter((c) => !values.brandId || !c.brandId || c.brandId === values.brandId)
+              .map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </ASelect>
         </div>
         <div className="grid grid-cols-2 gap-4">

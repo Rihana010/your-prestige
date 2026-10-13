@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { logAudit } from "@/lib/audit";
@@ -121,31 +122,63 @@ export async function getBrandProductOptions(brandId: string) {
   });
 }
 
-/** Swaps `sortOrder` with the adjacent sibling — the whole "reorder" mechanic, no drag-and-drop dependency needed. */
+/**
+ * Moves a brand one place up or down.
+ *
+ * Swapping `sortOrder` with the neighbour only works when every brand already
+ * has a distinct number — and they all default to 0, so on a fresh catalogue
+ * the buttons silently did nothing. This renumbers the whole list 0..n-1 in its
+ * current visible order first, then swaps, so it works from any starting state.
+ */
 export async function reorderBrand(id: string, direction: "up" | "down") {
   const session = await requirePermission("brands", "edit");
 
-  const current = await prisma.brand.findUniqueOrThrow({ where: { id } });
-  const sibling = await prisma.brand.findFirst({
-    where: {
-      deletedAt: null,
-      sortOrder: direction === "up" ? { lt: current.sortOrder } : { gt: current.sortOrder },
-    },
-    orderBy: { sortOrder: direction === "up" ? "desc" : "asc" },
+  const all = await prisma.brand.findMany({
+    where: { deletedAt: null },
+    select: { id: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-  if (!sibling) return current;
+  const from = all.findIndex((b) => b.id === id);
+  if (from === -1) throw new Error("Brand not found.");
+  const to = direction === "up" ? from - 1 : from + 1;
+  if (to < 0 || to >= all.length) return;
 
-  await prisma.$transaction([
-    prisma.brand.update({ where: { id: current.id }, data: { sortOrder: sibling.sortOrder, updatedById: session.user.id } }),
-    prisma.brand.update({ where: { id: sibling.id }, data: { sortOrder: current.sortOrder, updatedById: session.user.id } }),
-  ]);
+  const ids = all.map((b) => b.id);
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+
+  await prisma.$transaction(
+    ids.map((brandId, index) =>
+      prisma.brand.update({ where: { id: brandId }, data: { sortOrder: index, updatedById: session.user.id } })
+    )
+  );
 
   await logAudit({ action: "brand.reorder", entity: "Brand", entityId: id, meta: { direction } });
-  return current;
+  // Order shows on the brand index and in the shared mega-menu / footer.
+  revalidatePath("/brands");
+  revalidatePath("/");
 }
 
 export async function softDeleteBrand(id: string) {
   const session = await requirePermission("brands", "delete");
+
+  // A brand that still owns products or categories would strand them: its
+  // products lose their brand page and its categories fall back to "shared".
+  // Refuse, and say what is in the way.
+  const [products, categories, collections] = await Promise.all([
+    prisma.product.count({ where: { brandId: id, deletedAt: null } }),
+    prisma.category.count({ where: { brandId: id, deletedAt: null } }),
+    prisma.collection.count({ where: { brandId: id, deletedAt: null } }),
+  ]);
+  if (products > 0 || categories > 0 || collections > 0) {
+    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    const parts = [
+      products > 0 ? plural(products, "product", "products") : null,
+      categories > 0 ? plural(categories, "category", "categories") : null,
+      collections > 0 ? plural(collections, "collection", "collections") : null,
+    ].filter(Boolean);
+    throw new Error(`This brand still has ${parts.join(", ")}. Move or remove them before deleting the brand.`);
+  }
+
   const brand = await prisma.brand.update({
     where: { id },
     data: { deletedAt: new Date(), deletedById: session.user.id },

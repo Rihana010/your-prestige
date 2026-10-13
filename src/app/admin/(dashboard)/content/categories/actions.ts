@@ -120,7 +120,7 @@ async function resolveCategoryRelations(
     });
     if (foreign > 0) {
       throw new Error(
-        `${foreign} product${foreign === 1 ? "" : "s"} in this category belong to another brand (or none). Move them first, or leave the category shared.`
+        `${foreign === 1 ? "1 product in this category belongs" : `${foreign} products in this category belong`} to another brand (or none). Move ${foreign === 1 ? "it" : "them"} first, or leave the category shared.`
       );
     }
   }
@@ -223,26 +223,39 @@ export async function softDeleteCategory(id: string) {
 }
 
 /** Swaps `sortOrder` with the adjacent sibling *within the same parent* — a bathware child reorders independently of top-level categories. */
+/**
+ * Moves a category one place up or down among its siblings (same parent, same
+ * brand scope). Renumbers the siblings 0..n-1 first, because swapping
+ * `sortOrder` values does nothing while they are all the default 0.
+ */
 export async function reorderCategory(id: string, direction: "up" | "down") {
   const session = await requirePermission("categories", "edit");
 
-  const current = await prisma.category.findUniqueOrThrow({ where: { id } });
-  const sibling = await prisma.category.findFirst({
-    where: {
-      deletedAt: null,
-      parentId: current.parentId,
-      sortOrder: direction === "up" ? { lt: current.sortOrder } : { gt: current.sortOrder },
-    },
-    orderBy: { sortOrder: direction === "up" ? "desc" : "asc" },
+  const current = await prisma.category.findUniqueOrThrow({
+    where: { id },
+    select: { id: true, parentId: true, brandId: true },
   });
-  if (!sibling) return current;
+  const siblings = await prisma.category.findMany({
+    where: { deletedAt: null, parentId: current.parentId, brandId: current.brandId },
+    select: { id: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+  });
 
-  await prisma.$transaction([
-    prisma.category.update({ where: { id: current.id }, data: { sortOrder: sibling.sortOrder, updatedById: session.user.id } }),
-    prisma.category.update({ where: { id: sibling.id }, data: { sortOrder: current.sortOrder, updatedById: session.user.id } }),
-  ]);
+  const from = siblings.findIndex((c) => c.id === id);
+  const to = direction === "up" ? from - 1 : from + 1;
+  if (from === -1 || to < 0 || to >= siblings.length) return current;
+
+  const ids = siblings.map((c) => c.id);
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+
+  await prisma.$transaction(
+    ids.map((catId, index) =>
+      prisma.category.update({ where: { id: catId }, data: { sortOrder: index, updatedById: session.user.id } })
+    )
+  );
 
   await logAudit({ action: "category.reorder", entity: "Category", entityId: id, meta: { direction } });
+  await revalidateCategoryById(id);
   return current;
 }
 

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Container } from "@/components/ui/Container";
 import { Breadcrumbs } from "@/components/site/Breadcrumbs";
@@ -82,6 +83,12 @@ export default async function BrandCategoryPage({
   const sp = await searchParams;
   const result = await searchCatalog({ ...parseFilters(sp), brand: brand.name, category: cat.slug });
 
+  // Brand › Category › Subcategory. Only categories this brand actually has a
+  // page for are linked — a parent with nothing of the brand's in it has no
+  // page here, so it is left out of the trail rather than linking to a 404.
+  const parent = cat.parentSlug ? categories.find((c) => c.slug === cat.parentSlug) : undefined;
+  const subcategories = categories.filter((c) => c.parentSlug === cat.slug);
+
   return (
     <main className="min-h-screen bg-white">
       <section className="pb-4 pt-8">
@@ -90,11 +97,32 @@ export default async function BrandCategoryPage({
             items={[
               { label: "Brands", href: "/brands" },
               { label: brand.name, href: `/brands/${brand.slug}` },
+              ...(parent ? [{ label: parent.name, href: `/brands/${brand.slug}/${parent.slug}` }] : []),
               { label: cat.name },
             ]}
           />
         </Container>
       </section>
+
+      {subcategories.length > 0 && (
+        <section aria-label={`${cat.name} subcategories`} className="pb-2">
+          <Container size="wide">
+            <ul className="flex flex-wrap gap-2">
+              {subcategories.map((sub) => (
+                <li key={sub.slug}>
+                  <Link
+                    href={`/brands/${brand.slug}/${sub.slug}`}
+                    className="inline-flex items-center gap-2 rounded-full border border-ink/10 px-4 py-2 text-xs font-medium text-muted transition-colors hover:border-gold/50 hover:text-text"
+                  >
+                    {sub.name}
+                    <span className="text-ink/35">{sub.count}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Container>
+        </section>
+      )}
 
       <CatalogBrowser
         result={result}

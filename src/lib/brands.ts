@@ -211,6 +211,8 @@ export interface BrandCategoryView {
   /** Optional showcase video + its poster frame; both null when unset. */
   video: string | null;
   videoPoster: string | null;
+  /** Slug of this category's parent, so a brand page can show Brand › Category › Subcategory. */
+  parentSlug: string | null;
 }
 
 /** This brand's category breakdown — the spine of its `/brands/[slug]` navigation. */
@@ -227,6 +229,7 @@ export const getBrandCategories = cache(
         videoPoster: true,
         description: true,
         sortOrder: true,
+        parent: { select: { slug: true } },
       } as const;
 
       const brand = await prisma.brand.findUnique({ where: { slug: brandSlug }, select: { id: true } });
@@ -281,6 +284,7 @@ export const getBrandCategories = cache(
               banner: resolveImageRef(cat.bannerImage),
               video: cat.video,
               videoPoster: resolveImageRef(cat.videoPoster),
+              parentSlug: cat.parent?.slug ?? null,
             } satisfies BrandCategoryView,
             sortOrder: cat.sortOrder,
           };

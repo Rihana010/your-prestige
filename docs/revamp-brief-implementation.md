@@ -2,18 +2,18 @@
 
 Implements `Product Management & WhatsApp Ordering Revamp` brief. Built on a branch; nothing here touches the live site until it is reviewed and deployed.
 
-## What changed
+## What changed (by brief section)
 
-| Brief section | Change |
+| Brief section | What was done |
 |---|---|
-| 1. Brand-wise categories | `Category.brandId` (nullable). A brand's categories show on `/brands/[slug]` even while empty. `null` = shared (all existing categories, unchanged). Admin enforces: no cycles, subcategory inherits parent's brand, can't move a category to a brand while it holds other brands' products. |
-| 2. Optional media | `Category.video` + `Category.videoPoster` (banner/card image already existed). Category hero shows video → banner → image → clean text header. Video load failure falls back to the image. |
-| 3. Product management | Product create/update refuses a category owned by a different brand. |
-| 4. Customer pages | Honest empty state ("being added", not "no products for these filters"); text-only hero when a category has no media. |
-| 5. Order management | New admin page `/admin/orders` (search by ref/product/code/customer, status filter, detail drawer, internal notes, trash/restore). Permission module `orders`. |
-| 6. WhatsApp ordering | Variant picker, typeable quantity, order is **saved first** then WhatsApp opens with the same details + order reference. Same product in two variants = two lines. Falls back to an unsaved message if our server is unreachable. Uses the configured business number (`whatsapp.number` setting → `business.whatsapp` → site config); the hardcoded number is gone. |
-| 7. Admin | Category form: brand, video, poster. Validation on delete (blocked while products/subcategories remain). |
-| 9. Safety | Additive SQL only. No data deleted, no destructive migration. |
+| **1. Brand-wise structure** | `Category.brandId` (nullable; `null` = shared, i.e. every existing category). A brand's categories — and their subcategories, which inherit the brand — show on `/brands/[slug]` even while empty. Admin enforces: no cycles, subcategory brand = parent brand, can't move a category to a brand while it holds other brands' products. Categories are created/edited/deleted/reordered/assigned in the admin; nothing new is hardcoded. |
+| **2. Showcase media** | `Category.video` + `videoPoster` (banner and card image already existed; brands already had logo/banner/hero video/poster). Hero shows video → banner → image → clean text header. A video that fails to load falls back to the image. Uploads/replacement go through the existing admin upload fields. |
+| **3. Product management** | **SKU and Product code fields** added to the product form (they were not editable before). Brand ↔ category are linked: choosing a brand shows only that brand's + shared categories; picking a brand-owned category sets the brand. **Duplicate prevention:** SKU already used → refused; same name under the same brand+category → refused (suggests a variant). **Admin list:** filter by brand, category (includes subcategories), visibility, and "needs brand/category"; search also matches SKU, product code and variant SKUs. **Bulk:** assign brand/category (all-or-nothing, validated), publish, hide, delete. Gallery, specifications, sizes and variants were already in the form. |
+| **4. Customer pages** | Honest empty state ("being added", not "no products for these filters"); text-only header when there is no media; **Brand › Category › Subcategory** breadcrumb and subcategory chips on brand category pages; variant picker on the product page. |
+| **5. Order management** | New admin page `/admin/orders`: search by reference / product / code / customer, status filter, detail drawer (customer, ordered products, quantities, variants), internal notes, trash/restore. Permission module `orders`. |
+| **6. WhatsApp ordering** | Variant picker, typeable quantity, order **saved first**, then WhatsApp opens with the same details + an order reference. Same product in two variants = two lines. Multi-product Enquiry List sends as one order. Falls back to an unsaved message if our server is unreachable. Uses the configured business number (`whatsapp.number` setting → `business.whatsapp` → site config). No automation, CRM or chat features added. |
+| **7. Admin / CMS** | Category delete is blocked while it holds products or subcategories; **brand delete is blocked while it owns products, categories or collections**. **Reordering fixed:** the existing up/down buttons did nothing while sort numbers were all the default 0 — they now renumber siblings first (categories within the same parent and brand scope). |
+| **9. Safety** | Additive SQL only. No data deleted, no destructive migration, no change to inventory/auth/permissions beyond adding the `orders` module. |
 
 ## Deploying (in order)
 
@@ -37,17 +37,25 @@ Deploy the code only after step 2: the new Prisma client selects `Category.brand
 7. Mobile: sticky bar on a variant product says "Choose & Order" and scrolls to the picker. Check popup-blocked behaviour in iOS Safari.
 8. Product without variants still works with the size chips.
 9. Settings → set `whatsapp.number` → new orders use it.
-10. Roles: SHOWROOM_STAFF can view/update orders; VIEWER can view only; DEALER has no Orders.
+10. Admin → Products: filter by brand + category; select 2–3 products → Assign to a brand-owned category of a different brand → refused, nothing changes; set the brand too → applied. Publish / Hide a selection and confirm the public site follows.
+11. Admin → Products: create a product with an existing SKU → refused with the other product's name. Create the same name under the same brand+category → refused.
+12. Admin → Brands and Categories: press the up/down arrows on a fresh catalogue (all sort numbers 0) → order changes. Try deleting a brand that has products → refused.
+13. `/brands/<brand>/<category-with-subcategories>` → subcategory chips and the Brand › Category › Subcategory breadcrumb.
+14. Roles: SHOWROOM_STAFF can view/update orders; VIEWER can view only; DEALER has no Orders.
 
 ## Verified so far
 
-- `tsc --noEmit`: 0 errors. ESLint on changed files: 0 errors.
-- Order creation logic (13 checks against a stubbed database): variant belongs to product, variant required when product has variants, unknown product/zero quantity/bad unit rejected, duplicate-reference retry, server-side snapshots, correct `wa.me` link.
-- Not run: `next build` (Google Fonts blocked in the build sandbox) and anything needing a live database. Use the checklist above on staging.
+- `tsc --noEmit`: 0 errors. ESLint on changed files: 0 errors (1 pre-existing unused-import warning).
+- Run against a fake database (45 checks): order creation (variant belongs to product, variant required, bad input rejected, duplicate-reference retry, server-side snapshots, correct `wa.me` link); product duplicate prevention; bulk assign (all-or-nothing) and bulk status; category cycle/brand rules, delete guards, reordering from the all-zero default; brand delete guard.
+- **Not run:** `next build` (Google Fonts is blocked in the build sandbox), anything against a real database, and visual checks on a phone. Use the checklist above on staging.
 
 ## Known limits / follow-ups
 
+- **Pricing:** price/MRP exist per variant and on the product row, but the public site is a luxury catalogue and deliberately shows only a price indicator, so no price fields were added to the product form. Availability is the Visibility control (Published / Draft / Hidden); the public site shows no stock figures by design.
+- **Broken product images:** the shared image component already falls back safely, but a full sweep of the catalogue for broken URLs was not done — Admin → Media Health Check and Image Review exist for that.
+- The top-level `/tiles` and `/bathware` sections are fixed routes (pre-existing). Everything beneath them is dynamic.
+- Reordering is up/down buttons, not drag-and-drop.
 - Rate limiting on `/api/orders` is in-memory per instance (same as `/api/leads`); swap for Redis/Upstash if the site scales out.
-- Category slugs are globally unique, so brand-specific categories need the brand in the slug (e.g. `jaquar-faucets`). Making slugs unique per brand would be a larger, riskier schema change.
-- Product bulk operations, per-brand category reordering UI and a dedicated product form restructure are not part of this pass.
+- Category slugs are globally unique, so brand-specific categories need the brand in the slug (e.g. `jaquar-faucets`). Per-brand unique slugs would be a larger, riskier schema change.
+- No performance profiling was done; brand pages add one extra query for brand-owned categories.
 - `ProductWhatsAppActions.tsx` is unused dead code (left alone).

@@ -7,6 +7,10 @@ export const productSchema = z.object({
     .min(2)
     .max(150)
     .regex(/^[a-z0-9-]+$/, "Lowercase letters, numbers and hyphens only"),
+  /** Our/ manufacturer's product code. Unique across live products when set. */
+  sku: z.string().trim().max(80).optional().or(z.literal("")),
+  /** Manufacturer article code, when different from the SKU. */
+  productCode: z.string().trim().max(80).optional().or(z.literal("")),
   collection: z.string().max(150).optional().or(z.literal("")),
   description: z.string().max(4000).optional().or(z.literal("")),
   finish: z.string().max(100).optional().or(z.literal("")),
