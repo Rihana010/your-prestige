@@ -1,9 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { generateSingleProductWhatsAppMessage, buildWhatsAppLink } from "@/lib/whatsapp";
+import {
+  generateSingleProductWhatsAppMessage,
+  buildWhatsAppLink,
+} from "@/lib/whatsapp";
 import { useEnquiryList } from "@/lib/enquiry-store";
-import { ArrowUpRight, Plus, Minus, ShoppingBag, MessageSquare, Loader2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  Plus,
+  Minus,
+  ShoppingBag,
+  MessageSquare,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { CatalogProduct } from "@/lib/catalog";
 
@@ -14,10 +24,15 @@ interface Props {
 
 const UNITS = ["Boxes", "Pieces", "Sq.ft", "Sq.m"];
 
-export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
+export function ProductWhatsAppActions({
+  product,
+  whatsappNumber,
+}: Props) {
   const [quantity, setQuantity] = useState(1);
   const [unit, setUnit] = useState("Boxes");
-  const [selectedSize, setSelectedSize] = useState(product.sizes[0] || "Standard");
+  const [selectedSize, setSelectedSize] = useState(
+    product.sizes[0] || "Standard"
+  );
   const [ordering, setOrdering] = useState(false);
   const [adding, setAdding] = useState(false);
 
@@ -25,6 +40,7 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
 
   const handleOrderWhatsApp = () => {
     if (ordering) return;
+
     setOrdering(true);
 
     const message = generateSingleProductWhatsAppMessage({
@@ -34,7 +50,7 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
       finish: product.finish,
       quantity,
       unit,
-      productUrl: typeof window !== "undefined" ? window.location.href : undefined,
+      productUrl: window.location.href,
     });
 
     const link = buildWhatsAppLink(whatsappNumber, message);
@@ -48,19 +64,29 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
         productName: product.name,
         quantity,
         unit,
-        sourcePage: typeof window !== "undefined" ? window.location.pathname : undefined,
+        sourcePage: window.location.pathname,
       }),
     }).catch(() => {});
 
     toast.success("Opening WhatsApp with your pre-filled enquiry...");
-    setTimeout(() => {
-      window.open(link, "_blank");
-      setOrdering(false);
-    }, 500);
+
+    // Open the tab immediately within the click handler.
+    const whatsappWindow = window.open("about:blank", "_blank");
+
+    if (whatsappWindow) {
+      whatsappWindow.opener = null;
+      whatsappWindow.location.href = link;
+    } else {
+      // Fall back to the current tab if popups are blocked.
+      window.location.href = link;
+    }
+
+    setOrdering(false);
   };
 
   const handleAddToEnquiryList = () => {
     if (adding) return;
+
     setAdding(true);
 
     addItem({
@@ -74,40 +100,48 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
       image: product.lifestyleImage,
     });
 
-    toast.success(`Added ${quantity} ${unit} of ${product.name} to Enquiry List!`);
+    toast.success(
+      `Added ${quantity} ${unit} of ${product.name} to Enquiry List!`
+    );
+
     setTimeout(() => {
       setAdding(false);
     }, 400);
   };
 
   return (
-    <div className="space-y-4 max-w-xl">
-      {/* Quantity & Unit & Size Pickers */}
-      <div className="flex flex-wrap items-center gap-3 p-3 rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md">
-        {/* Quantity Controls */}
-        <div className="flex items-center gap-2 bg-black/40 rounded-xl px-3 py-1.5 border border-white/10">
+    <div className="max-w-xl space-y-4">
+      {/* Quantity, unit and size selectors */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur-md">
+        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-1.5">
           <button
+            type="button"
             onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-            className="text-white/70 hover:text-white transition-colors"
+            className="text-white/70 transition-colors hover:text-white"
             aria-label="Decrease quantity"
           >
             <Minus className="h-4 w-4" />
           </button>
-          <span className="w-8 text-center text-sm font-bold font-mono text-gold">{quantity}</span>
+
+          <span className="w-8 text-center font-mono text-sm font-bold text-gold">
+            {quantity}
+          </span>
+
           <button
+            type="button"
             onClick={() => setQuantity((q) => q + 1)}
-            className="text-white/70 hover:text-white transition-colors"
+            className="text-white/70 transition-colors hover:text-white"
             aria-label="Increase quantity"
           >
             <Plus className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Unit Select */}
         <select
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
-          className="bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-semibold focus:border-gold outline-none"
+          className="rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-gold"
+          aria-label="Select order unit"
         >
           {UNITS.map((u) => (
             <option key={u} value={u} className="bg-[#141413] text-white">
@@ -116,12 +150,12 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
           ))}
         </select>
 
-        {/* Size Picker if multiple sizes */}
         {product.sizes.length > 1 && (
           <select
             value={selectedSize}
             onChange={(e) => setSelectedSize(e.target.value)}
-            className="bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white font-semibold focus:border-gold outline-none"
+            className="rounded-xl border border-white/10 bg-black/40 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-gold"
+            aria-label="Select product size"
           >
             {product.sizes.map((s) => (
               <option key={s} value={s} className="bg-[#141413] text-white">
@@ -132,12 +166,13 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
         )}
       </div>
 
-      {/* Primary Action Buttons */}
+      {/* Primary action buttons */}
       <div className="flex flex-wrap items-center gap-3">
         <button
+          type="button"
           onClick={handleOrderWhatsApp}
           disabled={ordering || adding}
-          className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-4 text-sm font-bold text-white shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed min-h-[56px]"
+          className="flex min-h-[56px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-4 text-sm font-bold text-white shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {ordering ? (
             <>
@@ -154,9 +189,10 @@ export function ProductWhatsAppActions({ product, whatsappNumber }: Props) {
         </button>
 
         <button
+          type="button"
           onClick={handleAddToEnquiryList}
           disabled={ordering || adding}
-          className="flex items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 backdrop-blur-md px-5 py-4 text-sm font-bold text-white transition-colors hover:bg-white hover:text-black disabled:opacity-60 disabled:cursor-not-allowed min-h-[56px]"
+          className="flex min-h-[56px] items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-5 py-4 text-sm font-bold text-white backdrop-blur-md transition-colors hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
         >
           {adding ? (
             <>

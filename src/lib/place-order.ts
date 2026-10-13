@@ -1,82 +1,118 @@
 "use client";
 
-import { buildOrderMessage, buildWhatsAppLink, type OrderLine } from "@/lib/whatsapp-message";
+import {
+  buildOrderMessage,
+  buildWhatsAppLink,
+  type OrderLine,
+} from "@/lib/whatsapp-message";
 
 export interface PlaceOrderItem {
-  /** Product id (or slug for older saved list items). */
   productId: string;
   variantId?: string | null;
   size?: string | null;
   quantity: number;
   unit: string;
-  /** Used only to build the fallback message if saving the order fails. */
   fallback: OrderLine;
 }
 
 export interface PlaceOrderResult {
-  /** true when the order was saved and the message carries its reference. */
   saved: boolean;
   orderNumber?: string;
-  /** Set when the server rejected something the customer can fix. */
   error?: string;
 }
 
-/**
- * Save the order, then open WhatsApp.
- *
- * The WhatsApp tab is opened synchronously inside the click handler and
- * pointed at the real link afterwards — mobile Safari and in-app browsers
- * block a window.open() that happens after an await. If saving the order
- * fails for a reason that is not the customer's to fix (network, server), they
- * still get sent to WhatsApp with an unsaved message: losing an order because
- * our database hiccuped would be worse than not having a record of it.
- */
 export async function placeWhatsAppOrder(
   items: PlaceOrderItem[],
   whatsappNumber: string
 ): Promise<PlaceOrderResult> {
-  const popup = typeof window !== "undefined" ? window.open("about:blank", "_blank") : null;
+  // Prepare a fallback link in case saving the order fails.
+  const fallbackUrl = buildWhatsAppLink(
+    whatsappNumber,
+    buildOrderMessage(items.map((item) => item.fallback))
+  );
 
-  const go = (url: string) => {
-    if (popup && !popup.closed) popup.location.href = url;
-    else window.location.assign(url);
+  // Open exactly one blank tab during the user's click.
+  // This preserves the browser's permission to open a new tab.
+  const popup = window.open("about:blank", "_blank");
+
+  // Keep the original product page in the current tab.
+  if (popup) {
+    popup.opener = null;
+  }
+
+  const openWhatsApp = (url: string) => {
+    if (popup && !popup.closed) {
+      popup.location.href = url;
+    } else {
+      // If the browser blocks popups, do not redirect the product page.
+      // Show the WhatsApp link as an error instead.
+      return false;
+    }
+
+    return true;
   };
 
-  const fallbackUrl = () =>
-    buildWhatsAppLink(whatsappNumber, buildOrderMessage(items.map((i) => i.fallback)));
-
   try {
-    const res = await fetch("/api/orders", {
+    const response = await fetch("/api/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        items: items.map(({ productId, variantId, size, quantity, unit }) => ({
-          productId,
-          variantId: variantId || null,
-          size: size || null,
-          quantity,
-          unit,
-        })),
+        items: items.map(
+          ({ productId, variantId, size, quantity, unit }) => ({
+            productId,
+            variantId: variantId || null,
+            size: size || null,
+            quantity,
+            unit,
+          })
+        ),
         sourcePage: window.location.pathname,
       }),
     });
-    const data = await res.json().catch(() => null);
 
-    if (res.ok && data?.whatsappUrl) {
-      go(data.whatsappUrl);
-      return { saved: true, orderNumber: data.orderNumber };
+    const data = await response.json().catch(() => null);
+
+    if (response.ok && data?.whatsappUrl) {
+      const opened = openWhatsApp(data.whatsappUrl);
+
+      if (!opened) {
+        return {
+          saved: true,
+          orderNumber: data.orderNumber,
+          error:
+            "Your order was saved, but the browser blocked the WhatsApp tab. Allow popups and try opening WhatsApp again.",
+        };
+      }
+
+      return {
+        saved: true,
+        orderNumber: data.orderNumber,
+      };
     }
 
-    // 4xx = something the customer can fix (variant gone, bad quantity).
-    // Close the blank tab and tell them rather than sending a wrong order.
-    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
-      popup?.close();
-      return { saved: false, error: data?.error || "Please check your order and try again." };
+    // Close the blank tab when the server rejects the order.
+    if (popup && !popup.closed) {
+      popup.close();
     }
+
+    return {
+      saved: false,
+      error:
+        data?.error ||
+        "Could not save your order. Please refresh and try again.",
+    };
   } catch {
-    // network failure — fall through to the unsaved fallback
-  }
+    // Do not open a second tab or redirect the original product page.
+    if (popup && !popup.closed) {
+      popup.close();
+    }
 
-  go(fallbackUrl());
-  return { saved: false };
+    return {
+      saved: false,
+      error:
+        "Could not save your order. Please check your connection and try again.",
+    };
+  }
 }
