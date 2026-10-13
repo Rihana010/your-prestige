@@ -116,6 +116,16 @@ model Category {
   sortOrder   Int     @default(0)
   published   Boolean @default(true)
 
+  // — Optional video showcase + brand ownership (additive, hand-written SQL:
+  // prisma/sql/2026-10-13-brand-categories-and-orders.sql) —
+  video       String? // optional showcase video; the page works fine without it
+  videoPoster String? // poster frame shown before the video loads
+  /// null = shared across brands (every category before this change). Set =
+  /// this category belongs to exactly one brand, and only that brand's products
+  /// may be filed under it (enforced in the admin actions, not the DB).
+  brandId     String?
+  brand       Brand?  @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
   parentId String?
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
@@ -132,6 +142,7 @@ model Category {
   updatedAt   DateTime  @updatedAt
 
   @@index([parentId])
+  @@index([brandId])
   @@index([deletedAt])
 }
 
@@ -164,6 +175,7 @@ model Brand {
   catalogImports CatalogImport[]
   landingPages   LandingPage[]
   collections    Collection[]
+  categories     Category[]
   seo            Seo?
 
   createdById String?
@@ -1600,3 +1612,50 @@ model AboutPerson {
   @@index([displayOrder])
 }
 
+
+// ————— Customer orders (WhatsApp ordering) —————
+// Additive hand-written SQL: prisma/sql/2026-10-13-brand-categories-and-orders.sql
+// Named CustomerOrder, not Order, so it can never collide with a prestige-inv table.
+
+model CustomerOrder {
+  id             String    @id @default(cuid())
+  orderNumber    String    @unique
+  /// NEW | CONFIRMED | PROCESSING | COMPLETED | CANCELLED
+  status         String    @default("NEW")
+  customerName   String?
+  customerPhone  String?
+  notes          String?
+  sourcePage     String?
+  whatsappNumber String?
+  adminNotes     String?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  items CustomerOrderItem[]
+
+  @@index([status, createdAt])
+  @@index([deletedAt])
+}
+
+model CustomerOrderItem {
+  id           String        @id @default(cuid())
+  orderId      String
+  order        CustomerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Plain columns, not FKs — the snapshot below is the record, so archiving or
+  // deleting a product or variant never touches order history.
+  productId    String?
+  variantId    String?
+  productName  String
+  brandName    String?
+  sku          String?
+  variantLabel String?
+  size         String?
+  finish       String?
+  quantity     Int
+  unit         String        @default("Boxes")
+  productUrl   String?
+
+  @@index([orderId])
+  @@index([productId])
+}

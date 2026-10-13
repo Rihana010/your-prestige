@@ -3,7 +3,17 @@
 import { useState, useEffect } from "react";
 
 export interface EnquiryItem {
+  /**
+   * List key. Unique per product + variant (or size), so the same product in
+   * two sizes is two lines, not one merged line. Items saved before this
+   * change used the bare product id here and keep working.
+   */
   id: string;
+  /** The product itself (id or slug). Absent on items saved by older versions — then `id` is the product. */
+  productId?: string;
+  variantId?: string;
+  variantLabel?: string;
+  brand?: string;
   name: string;
   sku?: string;
   size?: string;
@@ -16,6 +26,11 @@ export interface EnquiryItem {
 }
 
 const STORAGE_KEY = "prestige_enquiry_list";
+
+/** Stable list key for a product + the variant (or size) chosen for it. */
+export function enquiryKey(productRef: string, variantId?: string | null, size?: string | null): string {
+  return `${productRef}::${variantId || size || ""}`;
+}
 
 export function getStoredEnquiryList(): EnquiryItem[] {
   if (typeof window === "undefined") return [];

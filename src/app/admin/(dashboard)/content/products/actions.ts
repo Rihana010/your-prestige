@@ -104,9 +104,30 @@ export async function getProductFormOptions(excludeId?: string) {
   return { categories, brands, collections, products };
 }
 
+/**
+ * A category that belongs to a brand only takes that brand's products. Without
+ * this, assigning "Jaquar Faucets" to a Kohler product would succeed and the
+ * product would surface on the wrong brand's page. Shared categories
+ * (brandId = null) accept anything, exactly as before.
+ */
+async function assertCategoryMatchesBrand(categoryId?: string | null, brandId?: string | null) {
+  if (!categoryId) return;
+  const category = await prisma.category.findUnique({
+    where: { id: categoryId },
+    select: { name: true, brandId: true, brand: { select: { name: true } } },
+  });
+  if (!category?.brandId) return;
+  if (brandId !== category.brandId) {
+    throw new Error(
+      `"${category.name}" belongs to ${category.brand?.name ?? "another brand"}. Choose that brand for this product, or pick a different category.`
+    );
+  }
+}
+
 export async function createProduct(input: ProductInput) {
   const session = await requirePermission("products", "create");
   const data = productSchema.parse(input);
+  await assertCategoryMatchesBrand(data.categoryId, data.brandId);
 
   const existing = await prisma.product.findUnique({ where: { slug: data.slug } });
   if (existing) throw new Error("A product with this slug already exists.");
@@ -146,6 +167,7 @@ export async function createProduct(input: ProductInput) {
 export async function updateProduct(id: string, input: ProductInput) {
   const session = await requirePermission("products", "edit");
   const data = productSchema.parse(input);
+  await assertCategoryMatchesBrand(data.categoryId, data.brandId);
 
   const before = await prisma.product.findUniqueOrThrow({ where: { id } });
   const duplicate = await prisma.product.findFirst({ where: { slug: data.slug, id: { not: id } } });

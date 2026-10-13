@@ -11,6 +11,11 @@ export const categorySchema = z.object({
   image: z.string().optional().or(z.literal("")),
   bannerImage: z.string().optional().or(z.literal("")),
   icon: z.string().max(50).optional().or(z.literal("")),
+  /** Optional showcase video + poster. Categories work fine without either. */
+  video: z.string().optional().or(z.literal("")),
+  videoPoster: z.string().optional().or(z.literal("")),
+  /** Owning brand. Empty = shared across brands (the pre-existing behaviour). */
+  brandId: z.string().optional().nullable(),
   parentId: z.string().optional().nullable(),
   sortOrder: z.coerce.number().int().default(0),
   published: z.boolean().default(true),

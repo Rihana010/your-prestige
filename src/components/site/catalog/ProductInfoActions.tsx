@@ -12,50 +12,75 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
-import { generateSingleProductWhatsAppMessage, buildWhatsAppLink } from "@/lib/whatsapp";
-import { useEnquiryList } from "@/lib/enquiry-store";
+import { ORDER_UNITS } from "@/lib/whatsapp-message";
+import { placeWhatsAppOrder } from "@/lib/place-order";
+import { useEnquiryList, enquiryKey } from "@/lib/enquiry-store";
 import type { CatalogProduct } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
+
+export interface VariantOption {
+  id: string;
+  sku: string | null;
+  name: string | null;
+  size: string | null;
+  finish: string | null;
+  color: string | null;
+}
 
 interface ProductInfoActionsProps {
   product: CatalogProduct;
   whatsappNumber: string;
+  /** Active variants of this product. Empty for products sold as a single item. */
+  variants?: VariantOption[];
 }
 
-const UNITS = ["Boxes", "Pieces", "Sq.ft", "Sq.m"];
+const UNITS = ORDER_UNITS;
+const MAX_QTY = 100000;
 
-export function ProductInfoActions({ product, whatsappNumber }: Props) {
+function variantLabel(v: VariantOption): string {
+  return v.name || [v.size, v.finish, v.color].filter(Boolean).join(" · ") || v.sku || "Standard";
+}
+
+export function ProductInfoActions({ product, whatsappNumber, variants = [] }: Props) {
+  const hasVariants = variants.length > 0;
   const [quantity, setQuantity] = useState(1);
-  const [unit, setUnit] = useState("Boxes");
-  const [selectedSize, setSelectedSize] = useState(product.sizes[0] || "Standard");
+  const [unit, setUnit] = useState<string>("Boxes");
+  const [selectedSize, setSelectedSize] = useState(product.sizes[0] || "");
+  const [variantId, setVariantId] = useState<string>(variants[0]?.id ?? "");
   const [ordering, setOrdering] = useState(false);
   const [adding, setAdding] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const { addItem } = useEnquiryList();
 
-  const handleOrderWhatsApp = () => {
+  const productRef = product.id || product.slug;
+  const variant = hasVariants ? variants.find((v) => v.id === variantId) ?? variants[0] : undefined;
+  const chosenSize = variant ? variant.size : selectedSize || null;
+
+  // One shape for both the saved order and the fallback message.
+  const fallbackLine = () => ({
+    name: product.name,
+    brand: product.brand || null,
+    sku: variant?.sku || product.sku || null,
+    variantLabel: variant ? variantLabel(variant) : null,
+    size: chosenSize,
+    finish: variant ? variant.finish : product.finish || null,
+    quantity,
+    unit,
+    productUrl: typeof window !== "undefined" ? window.location.href : null,
+  });
+
+  const handleOrderWhatsApp = async () => {
     if (ordering) return;
     setOrdering(true);
 
-    const message = generateSingleProductWhatsAppMessage({
-      productName: product.name,
-      sku: product.sku || "N/A",
-      size: selectedSize,
-      finish: product.finish,
-      quantity,
-      unit,
-      productUrl: typeof window !== "undefined" ? window.location.href : undefined,
-    });
-
-    const link = buildWhatsAppLink(whatsappNumber, message);
-
+    // Fire-and-forget analytics, unchanged from before.
     fetch("/api/analytics/whatsapp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         eventType: "PRODUCT_CLICK",
-        productId: product.id || product.slug,
+        productId: productRef,
         productName: product.name,
         quantity,
         unit,
@@ -63,11 +88,23 @@ export function ProductInfoActions({ product, whatsappNumber }: Props) {
       }),
     }).catch(() => {});
 
-    toast.success("Opening WhatsApp with your pre-filled enquiry...");
-    setTimeout(() => {
-      window.open(link, "_blank");
-      setOrdering(false);
-    }, 450);
+    const result = await placeWhatsAppOrder(
+      [
+        {
+          productId: productRef,
+          variantId: variant?.id ?? null,
+          size: chosenSize,
+          quantity,
+          unit,
+          fallback: fallbackLine(),
+        },
+      ],
+      whatsappNumber
+    );
+
+    if (result.error) toast.error(result.error);
+    else if (result.orderNumber) toast.success(`Order ${result.orderNumber} saved — finish it on WhatsApp`);
+    setOrdering(false);
   };
 
   const handleAddToEnquiryList = () => {
@@ -75,11 +112,15 @@ export function ProductInfoActions({ product, whatsappNumber }: Props) {
     setAdding(true);
 
     addItem({
-      id: product.id || product.slug,
+      id: enquiryKey(productRef, variant?.id, chosenSize),
+      productId: productRef,
+      variantId: variant?.id,
+      variantLabel: variant ? variantLabel(variant) : undefined,
+      brand: product.brand || undefined,
       name: product.name,
-      sku: product.sku,
-      size: selectedSize,
-      finish: product.finish,
+      sku: variant?.sku || product.sku,
+      size: chosenSize || undefined,
+      finish: variant ? variant.finish || undefined : product.finish,
       quantity,
       unit,
       image: product.lifestyleImage,
@@ -116,35 +157,67 @@ export function ProductInfoActions({ product, whatsappNumber }: Props) {
   };
 
   return (
-    <div className="space-y-6 pt-2">
-      {/* Sizing Selector (if multiple sizes exist) */}
-      {product.sizes && product.sizes.length > 0 && (
+    <div id="order-actions" className="scroll-mt-24 space-y-6 pt-2">
+      {/* Variant selector — real variants win over the loose size list */}
+      {hasVariants ? (
         <div>
           <label className="block text-[11px] font-bold uppercase tracking-widest text-muted mb-2.5">
-            Format / Dimensions
+            Variant
           </label>
-          <div className="flex flex-wrap gap-2.5">
-            {product.sizes.map((size) => {
-              const isSelected = size === selectedSize;
+          <div className="flex flex-wrap gap-2.5" role="radiogroup" aria-label="Variant">
+            {variants.map((v) => {
+              const isSelected = v.id === variant?.id;
               return (
                 <button
-                  key={size}
+                  key={v.id}
                   type="button"
-                  onClick={() => setSelectedSize(size)}
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => setVariantId(v.id)}
                   className={cn(
-                    "rounded-xl px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-300",
-                    "border",
+                    "rounded-xl px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-300 border",
                     isSelected
-                      ? "bg-text text-white border-text shadow-sm scale-[1.02]"
+                      ? "bg-text text-white border-text shadow-sm"
                       : "bg-surface text-text border-line hover:border-text/40 hover:bg-secondary"
                   )}
                 >
-                  {size}
+                  {variantLabel(v)}
                 </button>
               );
             })}
           </div>
+          {variant?.sku && <p className="mt-2 text-[11px] text-muted">Product code: {variant.sku}</p>}
         </div>
+      ) : (
+        product.sizes &&
+        product.sizes.length > 0 && (
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-widest text-muted mb-2.5">
+              Format / Dimensions
+            </label>
+            <div className="flex flex-wrap gap-2.5">
+              {product.sizes.map((size) => {
+                const isSelected = size === selectedSize;
+                return (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => setSelectedSize(size)}
+                    className={cn(
+                      "rounded-xl px-4 py-2 text-xs font-semibold tracking-wide transition-all duration-300",
+                      "border",
+                      isSelected
+                        ? "bg-text text-white border-text shadow-sm scale-[1.02]"
+                        : "bg-surface text-text border-line hover:border-text/40 hover:bg-secondary"
+                    )}
+                  >
+                    {size}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )
       )}
 
       {/* Quantity & Unit Selection Bar */}
@@ -163,12 +236,22 @@ export function ProductInfoActions({ product, whatsappNumber }: Props) {
             >
               <Minus className="h-3.5 w-3.5" />
             </button>
-            <span className="w-10 text-center font-mono text-sm font-bold text-text">
-              {quantity}
-            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={MAX_QTY}
+              value={quantity}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                setQuantity(Number.isFinite(n) ? Math.min(MAX_QTY, Math.max(1, n)) : 1);
+              }}
+              aria-label="Quantity"
+              className="w-14 bg-transparent text-center font-mono text-sm font-bold text-text focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
             <button
               type="button"
-              onClick={() => setQuantity((q) => q + 1)}
+              onClick={() => setQuantity((q) => Math.min(MAX_QTY, q + 1))}
               className="grid h-8 w-8 place-items-center rounded-lg text-text/70 hover:bg-surface hover:text-text transition-colors"
               aria-label="Increase quantity"
             >
@@ -180,6 +263,7 @@ export function ProductInfoActions({ product, whatsappNumber }: Props) {
           <select
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
+            aria-label="Unit"
             className="h-10 rounded-xl border border-line bg-surface px-3 py-1 text-xs font-semibold text-text focus:border-gold focus:outline-none focus:ring-1 focus:ring-gold"
           >
             {UNITS.map((u) => (
@@ -206,12 +290,12 @@ export function ProductInfoActions({ product, whatsappNumber }: Props) {
           {ordering ? (
             <>
               <Loader2 className="h-5 w-5 animate-spin" />
-              <span>Opening WhatsApp...</span>
+              <span>Saving your order...</span>
             </>
           ) : (
             <>
               <MessageSquare className="h-5 w-5 fill-current" />
-              <span>ENQUIRE ON WHATSAPP</span>
+              <span>ORDER ON WHATSAPP</span>
               <ArrowUpRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </>
           )}

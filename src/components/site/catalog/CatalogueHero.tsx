@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { Container } from "@/components/ui/Container";
@@ -9,6 +10,15 @@ interface CatalogueHeroProps {
   title?: string;
   description?: string;
   heroImage?: string;
+  /** Optional showcase video; falls back to the image (or nothing) if it fails to load. */
+  heroVideo?: string;
+  heroPoster?: string;
+  /**
+   * Render the text-only hero when there is no media to show, instead of the
+   * stock default image. For pages (a brand's category) where an unrelated
+   * stock photo would be worse than none.
+   */
+  hideMedia?: boolean;
 }
 
 export function CatalogueHero({
@@ -16,7 +26,12 @@ export function CatalogueHero({
   title = "An archive worth\nexploring.",
   description = "Filter by room, brand or finish — then step into the showroom to see every piece at full scale.",
   heroImage = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=1600&auto=format&fit=crop",
+  heroVideo,
+  heroPoster,
+  hideMedia = false,
 }: CatalogueHeroProps) {
+  const [videoFailed, setVideoFailed] = useState(false);
+  const showVideo = !!heroVideo && !videoFailed;
   // Split title lines if multiline or formatted
   const titleLines = title.split("\n");
 
@@ -34,7 +49,7 @@ export function CatalogueHero({
       <Container size="wide">
         <div className="grid grid-cols-1 gap-12 lg:grid-cols-12 lg:items-center">
           {/* Left Editorial Copy */}
-          <div className="lg:col-span-6 space-y-6 z-10">
+          <div className={hideMedia ? "lg:col-span-12 space-y-6 z-10" : "lg:col-span-6 space-y-6 z-10"}>
             <motion.div
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
@@ -73,6 +88,7 @@ export function CatalogueHero({
           </div>
 
           {/* Right Organic Architectural Imagery */}
+          {!hideMedia && (
           <motion.div
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -107,14 +123,29 @@ export function CatalogueHero({
                   WebkitClipPath: "url(#catalogue-hero-organic-clip)",
                 }}
               >
-                <Image
-                  src={heroImage}
-                  alt="Architectural tile & surface archive preview"
-                  fill
-                  priority
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                  className="object-cover object-center transition-transform duration-1000 ease-out group-hover:scale-105"
-                />
+                {showVideo ? (
+                  <video
+                    src={heroVideo}
+                    poster={heroPoster}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    aria-hidden="true"
+                    onError={() => setVideoFailed(true)}
+                    className="absolute inset-0 h-full w-full object-cover object-center"
+                  />
+                ) : (
+                  <Image
+                    src={heroImage}
+                    alt="Architectural tile & surface archive preview"
+                    fill
+                    priority
+                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    className="object-cover object-center transition-transform duration-1000 ease-out group-hover:scale-105"
+                  />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/10 pointer-events-none" />
               </div>
 
@@ -131,6 +162,7 @@ export function CatalogueHero({
               </motion.div>
             </div>
           </motion.div>
+          )}
         </div>
       </Container>
     </section>

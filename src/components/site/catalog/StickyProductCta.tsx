@@ -11,6 +11,11 @@ interface StickyProductCtaProps {
   sku?: string;
   size?: string;
   whatsappNumber: string;
+  /**
+   * When the product has variants, a one-tap message would guess a size for the
+   * customer. Send them to the order block (where they choose) instead.
+   */
+  hasVariants?: boolean;
 }
 
 export function StickyProductCta({
@@ -19,6 +24,7 @@ export function StickyProductCta({
   sku,
   size,
   whatsappNumber,
+  hasVariants = false,
 }: StickyProductCtaProps) {
   const [visible, setVisible] = useState(false);
   const reduced = useReducedMotion();
@@ -36,10 +42,12 @@ export function StickyProductCta({
   const skuStr = sku ? ` (Product No: ${sku})` : "";
   const sizeStr = size ? ` - Size: ${size}` : "";
 
-  const href = buildWhatsAppLink(
-    whatsappNumber,
-    `Hello Prestige Tiles,\n\nI am interested in:\n*${name}* (${brand})${skuStr}${sizeStr}\n\nPlease share pricing and availability.`
-  );
+  const href = hasVariants
+    ? "#order-actions"
+    : buildWhatsAppLink(
+        whatsappNumber,
+        `Hello Prestige Tiles,\n\nI am interested in:\n*${name}* (${brand})${skuStr}${sizeStr}\n\nPlease share pricing and availability.`
+      );
 
   return (
     <AnimatePresence>
@@ -64,12 +72,11 @@ export function StickyProductCta({
 
               <a
                 href={href}
-                target="_blank"
-                rel="noopener noreferrer"
+                {...(hasVariants ? {} : { target: "_blank", rel: "noopener noreferrer" })}
                 className="flex items-center gap-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] px-5 py-2.5 text-xs font-bold text-white shadow-lg transition-transform active:scale-95 shrink-0"
               >
                 <MessageSquare className="h-4 w-4 fill-current" />
-                <span>Enquire on WhatsApp</span>
+                <span>{hasVariants ? "Choose & Order" : "Enquire on WhatsApp"}</span>
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </a>
             </div>

@@ -36,6 +36,9 @@ export function CatalogBrowser({
   searchPlaceholder,
   showCategoryOnCards = false,
   heroImage,
+  heroVideo,
+  heroPoster,
+  noHeroMedia,
 }: {
   result: CatalogSearchResult;
   lockedCategory?: string;
@@ -72,6 +75,10 @@ export function CatalogBrowser({
   showCategoryOnCards?: boolean;
   /** Overrides the hero's stock photo — e.g. a category's own CMS image on a brand+category page. */
   heroImage?: string;
+  heroVideo?: string;
+  heroPoster?: string;
+  /** Text-only hero when no image/video exists (instead of the stock default). */
+  noHeroMedia?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -119,7 +126,15 @@ export function CatalogBrowser({
   return (
     <div className="min-h-screen bg-white pb-24">
       {showHero && (
-        <CatalogueHero eyebrow={eyebrow} title={title} description={description} heroImage={heroImage} />
+        <CatalogueHero
+          eyebrow={eyebrow}
+          title={title}
+          description={description}
+          heroImage={heroImage}
+          heroVideo={heroVideo}
+          heroPoster={heroPoster}
+          hideMedia={noHeroMedia}
+        />
       )}
 
       <Container size="wide">
@@ -236,13 +251,26 @@ export function CatalogBrowser({
         {/* Grid */}
         {products.length === 0 ? (
           <div className="py-24 text-center">
-            <p className="text-lg text-ink/50">No products found for these filters.</p>
-            <button
-              onClick={() => startTransition(() => router.push(pathname))}
-              className="mt-4 text-sm text-gold underline underline-offset-4"
-            >
-              Clear Filters
-            </button>
+            {activeFilters.length === 0 ? (
+              // Nothing is filtered, so there is genuinely nothing here yet —
+              // saying "no products for these filters" would be wrong.
+              <>
+                <p className="text-lg text-ink/60">Products in this category are being added.</p>
+                <p className="mt-2 text-sm text-ink/40">
+                  Visit a showroom or message us on WhatsApp to see what is available today.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg text-ink/50">No products found for these filters.</p>
+                <button
+                  onClick={() => startTransition(() => router.push(pathname))}
+                  className="mt-4 text-sm text-gold underline underline-offset-4"
+                >
+                  Clear Filters
+                </button>
+              </>
+            )}
 
             {facets.brands.length > 0 && (
               <div className="mt-10">

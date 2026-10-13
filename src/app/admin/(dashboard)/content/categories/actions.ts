@@ -10,7 +10,11 @@ import type { Prisma } from "@prisma/client";
 import { safeOrderBy, safePaging } from "@/lib/list-params";
 
 export type CategoryRow = Prisma.CategoryGetPayload<{
-  include: { parent: { select: { name: true } }; _count: { select: { products: true; children: true } } };
+  include: {
+    parent: { select: { name: true } };
+    brand: { select: { name: true } };
+    _count: { select: { products: true; children: true } };
+  };
 }>;
 
 export async function listCategories(params: ListParams): Promise<ListResult<CategoryRow>> {
@@ -31,7 +35,11 @@ export async function listCategories(params: ListParams): Promise<ListResult<Cat
   const [rows, total] = await Promise.all([
     prisma.category.findMany({
       where,
-      include: { parent: { select: { name: true } }, _count: { select: { products: true, children: true } } },
+      include: {
+        parent: { select: { name: true } },
+        brand: { select: { name: true } },
+        _count: { select: { products: true, children: true } },
+      },
       orderBy: safeOrderBy("Category", params.sortBy, params.sortDir, "sortOrder"),
       ...safePaging(params.page, params.pageSize),
     }),
@@ -45,10 +53,79 @@ export async function getCategoryOptions(excludeId?: string) {
   await requirePermission("categories", "view");
   const categories = await prisma.category.findMany({
     where: { deletedAt: null, ...(excludeId ? { id: { not: excludeId } } : {}) },
-    select: { id: true, name: true, parentId: true },
+    select: { id: true, name: true, parentId: true, brandId: true },
     orderBy: { name: "asc" },
   });
   return categories;
+}
+
+/** Brands a category can be assigned to. */
+export async function getBrandOptions() {
+  await requirePermission("categories", "view");
+  return prisma.brand.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true, slug: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+/**
+ * Relationship rules for a category, enforced here because the database does
+ * not (and, being additive-only, cannot be made to):
+ *
+ *  - a category cannot sit under itself or under one of its own descendants;
+ *  - a subcategory of a brand's category belongs to that same brand;
+ *  - moving a category to a brand is refused while it holds another brand's
+ *    products — they would silently end up filed under the wrong brand.
+ *
+ * Returns the brandId to store, which is the parent's brand when the parent
+ * has one.
+ */
+async function resolveCategoryRelations(
+  data: { parentId?: string | null; brandId?: string | null },
+  id?: string
+): Promise<string | null> {
+  let brandId = data.brandId || null;
+
+  if (data.parentId) {
+    // Walk up from the proposed parent; reaching this category means a cycle.
+    let cursor: string | null = data.parentId;
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor)) {
+      if (id && cursor === id) throw new Error("A category cannot be placed under one of its own subcategories.");
+      seen.add(cursor);
+      const node: { parentId: string | null } | null = await prisma.category.findUnique({
+        where: { id: cursor },
+        select: { parentId: true },
+      });
+      cursor = node?.parentId ?? null;
+    }
+
+    const parent = await prisma.category.findUnique({
+      where: { id: data.parentId },
+      select: { brandId: true, brand: { select: { name: true } } },
+    });
+    if (!parent) throw new Error("The selected parent category no longer exists.");
+    if (parent.brandId) {
+      if (brandId && brandId !== parent.brandId) {
+        throw new Error(`The parent category belongs to ${parent.brand?.name}; a subcategory must belong to the same brand.`);
+      }
+      brandId = parent.brandId;
+    }
+  }
+
+  if (id && brandId) {
+    const foreign = await prisma.product.count({
+      where: { categoryId: id, deletedAt: null, OR: [{ brandId: { not: brandId } }, { brandId: null }] },
+    });
+    if (foreign > 0) {
+      throw new Error(
+        `${foreign} product${foreign === 1 ? "" : "s"} in this category belong to another brand (or none). Move them first, or leave the category shared.`
+      );
+    }
+  }
+
+  return brandId;
 }
 
 export async function createCategory(input: CategoryInput) {
@@ -58,12 +135,17 @@ export async function createCategory(input: CategoryInput) {
   const existing = await prisma.category.findUnique({ where: { slug: data.slug } });
   if (existing) throw new Error("A category with this slug already exists.");
 
+  const brandId = await resolveCategoryRelations(data);
+
   const category = await prisma.category.create({
     data: {
       ...data,
       image: data.image || null,
       bannerImage: data.bannerImage || null,
       icon: data.icon || null,
+      video: data.video || null,
+      videoPoster: data.videoPoster || null,
+      brandId,
       description: data.description || null,
       parentId: data.parentId || null,
       createdById: session.user.id,
@@ -86,6 +168,8 @@ export async function updateCategory(id: string, input: CategoryInput) {
   const duplicate = await prisma.category.findFirst({ where: { slug: data.slug, id: { not: id } } });
   if (duplicate) throw new Error("A category with this slug already exists.");
 
+  const brandId = await resolveCategoryRelations(data, id);
+
   const category = await prisma.category.update({
     where: { id },
     data: {
@@ -93,6 +177,9 @@ export async function updateCategory(id: string, input: CategoryInput) {
       image: data.image || null,
       bannerImage: data.bannerImage || null,
       icon: data.icon || null,
+      video: data.video || null,
+      videoPoster: data.videoPoster || null,
+      brandId,
       description: data.description || null,
       parentId: data.parentId || null,
       updatedById: session.user.id,
@@ -112,6 +199,21 @@ export async function updateCategory(id: string, input: CategoryInput) {
 
 export async function softDeleteCategory(id: string) {
   const session = await requirePermission("categories", "delete");
+
+  // Deleting a category that still has contents would strand them: products
+  // fall to "uncategorised" and subcategories to the top level. Refuse and say why.
+  const [products, children] = await Promise.all([
+    prisma.product.count({ where: { categoryId: id, deletedAt: null } }),
+    prisma.category.count({ where: { parentId: id, deletedAt: null } }),
+  ]);
+  if (products > 0 || children > 0) {
+    const parts = [
+      products > 0 ? `${products} product${products === 1 ? "" : "s"}` : null,
+      children > 0 ? `${children} subcategor${children === 1 ? "y" : "ies"}` : null,
+    ].filter(Boolean);
+    throw new Error(`This category still has ${parts.join(" and ")}. Move or remove them before deleting it.`);
+  }
+
   const category = await prisma.category.update({
     where: { id },
     data: { deletedAt: new Date(), deletedById: session.user.id },

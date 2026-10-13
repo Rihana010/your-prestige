@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AField, ATextArea, ASelect, AToggle } from "@/components/admin/FormField";
 import { ImageUploadField } from "@/components/admin/ImageUploadField";
+import { VideoUploadField } from "@/components/admin/VideoUploadField";
 import { categorySchema, type CategoryInput } from "./schema";
-import { createCategory, updateCategory, getCategoryOptions } from "./actions";
+import { createCategory, updateCategory, getCategoryOptions, getBrandOptions } from "./actions";
 import type { CategoryRow } from "./actions";
 
 function slugify(s: string) {
@@ -24,6 +25,9 @@ const empty: CategoryInput = {
   image: "",
   bannerImage: "",
   icon: "",
+  video: "",
+  videoPoster: "",
+  brandId: null,
   parentId: null,
   sortOrder: 0,
   published: true,
@@ -45,6 +49,9 @@ export function CategoryForm({
           image: category.image ?? "",
           bannerImage: category.bannerImage ?? "",
           icon: category.icon ?? "",
+          video: category.video ?? "",
+          videoPoster: category.videoPoster ?? "",
+          brandId: category.brandId,
           parentId: category.parentId,
           sortOrder: category.sortOrder,
           published: category.published,
@@ -54,11 +61,18 @@ export function CategoryForm({
   const [slugTouched, setSlugTouched] = useState(!!category);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [parentOptions, setParentOptions] = useState<{ id: string; name: string }[]>([]);
+  const [parentOptions, setParentOptions] = useState<{ id: string; name: string; brandId: string | null }[]>([]);
+  const [brandOptions, setBrandOptions] = useState<{ id: string; name: string; slug: string }[]>([]);
 
   useEffect(() => {
     getCategoryOptions(category?.id).then(setParentOptions);
+    getBrandOptions().then(setBrandOptions);
   }, [category?.id]);
+
+  // A brand's category can only sit under a shared category or one of the same
+  // brand; the server enforces it, this just stops offering the wrong choices.
+  const selectedParent = parentOptions.find((p) => p.id === values.parentId);
+  const visibleParents = parentOptions.filter((p) => !values.brandId || !p.brandId || p.brandId === values.brandId);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -129,6 +143,22 @@ export function CategoryForm({
         onChange={(url) => setValues((v) => ({ ...v, bannerImage: url ?? "" }))}
         aspect="aspect-[21/9]"
       />
+      <VideoUploadField
+        scope="categories"
+        ownerId={category?.id ?? null}
+        label="Showcase Video (optional)"
+        value={values.video || null}
+        onChange={(url) => setValues((v) => ({ ...v, video: url ?? "" }))}
+      />
+      <ImageUploadField scope="categories" ownerId={category?.id ?? null}
+        label="Video Poster (optional)"
+        value={values.videoPoster || null}
+        onChange={(url) => setValues((v) => ({ ...v, videoPoster: url ?? "" }))}
+        aspect="aspect-video"
+      />
+      <p className="text-xs text-white/35">
+        Image and video are both optional — without them the category page shows a clean text header.
+      </p>
       <AField
         label="Icon"
         value={values.icon}
@@ -136,12 +166,30 @@ export function CategoryForm({
         hint="Lucide icon name, e.g. 'grid', 'droplet', 'sparkles'"
       />
       <ASelect
+        label="Brand"
+        value={selectedParent?.brandId ?? values.brandId ?? ""}
+        disabled={!!selectedParent?.brandId}
+        onChange={(e) => setValues((v) => ({ ...v, brandId: e.target.value || null }))}
+        hint={
+          selectedParent?.brandId
+            ? "Inherited from the parent category."
+            : "Leave empty to share this category across all brands. Slugs are global, so a brand-specific category usually needs the brand in its slug (e.g. jaquar-faucets)."
+        }
+      >
+        <option value="">Shared across brands</option>
+        {brandOptions.map((b) => (
+          <option key={b.id} value={b.id}>
+            {b.name}
+          </option>
+        ))}
+      </ASelect>
+      <ASelect
         label="Parent Category"
         value={values.parentId ?? ""}
         onChange={(e) => setValues((v) => ({ ...v, parentId: e.target.value || null }))}
       >
         <option value="">None (top-level)</option>
-        {parentOptions.map((p) => (
+        {visibleParents.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
           </option>

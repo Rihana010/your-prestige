@@ -206,51 +206,92 @@ export interface BrandCategoryView {
   count: number;
   image: string | null;
   description: string | null;
+  /** Optional wide banner; null when the admin has not set one. */
+  banner: string | null;
+  /** Optional showcase video + its poster frame; both null when unset. */
+  video: string | null;
+  videoPoster: string | null;
 }
 
 /** This brand's category breakdown — the spine of its `/brands/[slug]` navigation. */
 export const getBrandCategories = cache(
   async (brandSlug: string): Promise<BrandCategoryView[]> => {
     try {
-      const rows = await prisma.product.groupBy({
-        by: ["categoryId"],
-        where: { ...PUBLIC_PRODUCT_WHERE, brand: { slug: brandSlug } },
-        _count: { _all: true },
-      });
-      const categoryIds = rows.map((r) => r.categoryId).filter((id): id is string => !!id);
-      if (categoryIds.length === 0) return [];
+      const catSelect = {
+        id: true,
+        slug: true,
+        name: true,
+        image: true,
+        bannerImage: true,
+        video: true,
+        videoPoster: true,
+        description: true,
+        sortOrder: true,
+      } as const;
 
-      const cats = await prisma.category.findMany({
-        where: { id: { in: categoryIds } },
-        select: { id: true, slug: true, name: true, image: true, description: true },
-      });
-      const byId = new Map(cats.map((c) => [c.id, c]));
+      const brand = await prisma.brand.findUnique({ where: { slug: brandSlug }, select: { id: true } });
+      if (!brand) return [];
+
+      const [rows, owned] = await Promise.all([
+        prisma.product.groupBy({
+          by: ["categoryId"],
+          where: { ...PUBLIC_PRODUCT_WHERE, brand: { slug: brandSlug } },
+          _count: { _all: true },
+        }),
+        // Categories an admin created *for this brand*. Listed even while
+        // empty, so a brand's structure is browsable (with a proper empty
+        // state) before its products are filed.
+        prisma.category.findMany({
+          where: { brandId: brand.id, published: true, deletedAt: null },
+          select: catSelect,
+        }),
+      ]);
+
+      const productCategoryIds = rows.map((r) => r.categoryId).filter((id): id is string => !!id);
+      const derived = productCategoryIds.length
+        ? await prisma.category.findMany({
+            where: { id: { in: productCategoryIds }, deletedAt: null },
+            select: catSelect,
+          })
+        : [];
+
+      const byId = new Map([...derived, ...owned].map((c) => [c.id, c]));
+      const directCount = new Map(rows.map((r) => [r.categoryId, r._count._all]));
 
       // The page behind each chip lists the category's whole subtree, so the
       // chip counts it the same way. `groupBy` above only says which
       // categories this brand files products in — 48 brand/category pairs in
       // the catalogue have products on both a category and its children, and
       // those chips used to under-report.
-      const brand = await prisma.brand.findUnique({ where: { slug: brandSlug }, select: { id: true } });
-      const subtreeCounts = brand
-        ? await getSubtreeProductCounts(categoryIds, brand.id)
+      const allIds = [...byId.keys()];
+      const subtreeCounts = allIds.length
+        ? await getSubtreeProductCounts(allIds, brand.id)
         : new Map<string, number>();
 
-      return rows
-        .map((r) => {
-          const cat = r.categoryId ? byId.get(r.categoryId) : undefined;
-          return cat
-            ? {
-                slug: cat.slug,
-                name: cat.name,
-                count: subtreeCounts.get(cat.id) ?? r._count._all,
-                image: resolveImageRef(cat.image),
-                description: cat.description,
-              }
-            : null;
+      return allIds
+        .map((id) => {
+          const cat = byId.get(id)!;
+          return {
+            view: {
+              slug: cat.slug,
+              name: cat.name,
+              count: Number(subtreeCounts.get(id) ?? directCount.get(id) ?? 0),
+              image: resolveImageRef(cat.image),
+              description: cat.description,
+              banner: resolveImageRef(cat.bannerImage),
+              video: cat.video,
+              videoPoster: resolveImageRef(cat.videoPoster),
+            } satisfies BrandCategoryView,
+            sortOrder: cat.sortOrder,
+          };
         })
-        .filter((x): x is BrandCategoryView => x !== null)
-        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+        // Admin ordering first (all zeros today, so existing pages keep their
+        // by-count order), then the old by-count / by-name rule as the tiebreak.
+        .sort(
+          (a, b) =>
+            a.sortOrder - b.sortOrder || b.view.count - a.view.count || a.view.name.localeCompare(b.view.name)
+        )
+        .map((x) => x.view);
     } catch {
       return [];
     }

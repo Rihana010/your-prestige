@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useEnquiryList } from "@/lib/enquiry-store";
-import { generateMultiProductWhatsAppMessage, buildWhatsAppLink } from "@/lib/whatsapp";
+import { ORDER_UNITS } from "@/lib/whatsapp-message";
+import { placeWhatsAppOrder } from "@/lib/place-order";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Trash2, ShoppingBag, Send, Plus, Minus, MessageSquare, Loader2 } from "lucide-react";
 import { SafeImage } from "@/components/ui/SafeImage";
@@ -14,7 +15,7 @@ interface EnquiryListDrawerProps {
   whatsappNumber: string;
 }
 
-const UNITS = ["Boxes", "Pieces", "Sq.ft", "Sq.m"];
+const UNITS = ORDER_UNITS;
 
 export function EnquiryListDrawer({ isOpen, onClose, whatsappNumber }: EnquiryListDrawerProps) {
   const { items, updateQuantity, updateUnit, removeItem, clearList } = useEnquiryList();
@@ -23,9 +24,6 @@ export function EnquiryListDrawer({ isOpen, onClose, whatsappNumber }: EnquiryLi
   const handleSendWhatsApp = async () => {
     if (items.length === 0 || sending) return;
     setSending(true);
-
-    const message = generateMultiProductWhatsAppMessage(items);
-    const link = buildWhatsAppLink(whatsappNumber, message);
 
     // Track analytics event asynchronously
     try {
@@ -40,11 +38,36 @@ export function EnquiryListDrawer({ isOpen, onClose, whatsappNumber }: EnquiryLi
       }).catch(() => {});
     } catch {}
 
-    toast.success("Opening WhatsApp with your enquiry...");
-    setTimeout(() => {
-      window.open(link, "_blank");
-      setSending(false);
-    }, 600);
+    const result = await placeWhatsAppOrder(
+      items.map((i) => ({
+        // Items saved before variants existed have no productId — their id was the product.
+        productId: i.productId || i.id,
+        variantId: i.variantId,
+        size: i.size,
+        quantity: i.quantity,
+        unit: i.unit,
+        fallback: {
+          name: i.name,
+          brand: i.brand,
+          sku: i.sku,
+          variantLabel: i.variantLabel,
+          size: i.size,
+          finish: i.finish,
+          quantity: i.quantity,
+          unit: i.unit,
+          productUrl: i.productUrl,
+        },
+      })),
+      whatsappNumber
+    );
+
+    if (result.error) toast.error(result.error);
+    else if (result.orderNumber) {
+      toast.success(`Order ${result.orderNumber} saved — finish it on WhatsApp`);
+      clearList();
+      onClose();
+    }
+    setSending(false);
   };
 
   return (
@@ -123,7 +146,7 @@ export function EnquiryListDrawer({ isOpen, onClose, whatsappNumber }: EnquiryLi
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <h3 className="truncate text-sm font-semibold text-white">{item.name}</h3>
-                          <p className="text-xs text-white/40">{item.sku || item.size || "Standard"}</p>
+                          <p className="text-xs text-white/40">{[item.variantLabel || item.size, item.sku].filter(Boolean).join(" · ") || "Standard"}</p>
                         </div>
                         <button
                           onClick={() => removeItem(item.id)}
@@ -188,12 +211,12 @@ export function EnquiryListDrawer({ isOpen, onClose, whatsappNumber }: EnquiryLi
                   {sending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Preparing enquiry...
+                      Saving your order...
                     </>
                   ) : (
                     <>
                       <Send className="h-4 w-4" />
-                      Send Enquiry on WhatsApp
+                      Send Order on WhatsApp
                     </>
                   )}
                 </button>

@@ -26,6 +26,7 @@ export type Module =
   | "offers"
   | "leads"
   | "bookings"
+  | "orders"
   | "conversations"
   | "media"
   | "seo"
@@ -48,7 +49,7 @@ const ALL_MODULES: Module[] = [
   "dashboard", "homepage", "products", "catalogImports", "landingPages",
   "categories", "collections", "brands", "portfolio",
   "showrooms", "gallery", "videos", "testimonials", "blog", "faqs", "offers", "leads",
-  "bookings", "conversations", "media", "seo", "users", "settings",
+  "bookings", "orders", "conversations", "media", "seo", "users", "settings",
   "maintenance", "analytics", "logs",
   "dealers", "reviews", "reports", "inventory", "attributes", "specifications", "aboutPeople",
 ];
@@ -98,6 +99,7 @@ const MATRIX: Record<Role, Partial<Record<Module, Action[]>>> = {
     showrooms: ["view", "edit"],
     leads: ["view", "create", "edit"],
     bookings: ["view", "create", "edit"],
+    orders: ["view", "edit"],
     reports: ["view"],
     analytics: ["view", "analytics"],
   },
@@ -113,6 +115,7 @@ const MATRIX: Record<Role, Partial<Record<Module, Action[]>>> = {
     showrooms: ["view"],
     leads: ["view", "create", "edit"],
     bookings: ["view", "create", "edit"],
+    orders: ["view", "edit"],
   },
 
   // External account. Sees the catalogue and what it can block — nothing

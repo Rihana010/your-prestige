@@ -3,7 +3,7 @@ import {
   MessageSquareQuote, PenSquare, HelpCircle, BadgePercent, Users2, CalendarClock,
   Bot, FolderOpen, Search, ShieldCheck, BarChart3, Settings, Wrench, ScrollText, ClipboardCheck,
   Store, FileStack, MapPin, MessageSquarePlus, MessageSquare, Building2,
-  FileSpreadsheet, Warehouse, Star, LineChart, SlidersHorizontal, Layers, Activity,
+  FileSpreadsheet, Warehouse, Star, LineChart, SlidersHorizontal, Layers, Activity, ShoppingBag,
 } from "lucide-react";
 
 import type { Module } from "@/lib/permissions";
@@ -25,6 +25,7 @@ export const adminNav = [
   {
     section: "Commerce & Operations",
     items: [
+      { label: "Orders", href: "/admin/orders", icon: ShoppingBag, module: "orders" as Module },
       { label: "WhatsApp Commerce", href: "/admin/whatsapp", icon: MessageSquare, module: "settings" as Module },
       { label: "Dealers", href: "/admin/dealers", icon: Building2, module: "dealers" as Module },
       { label: "Inventory", href: "/admin/inventory", icon: Warehouse, module: "inventory" as Module },

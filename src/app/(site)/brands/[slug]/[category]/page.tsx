@@ -104,9 +104,14 @@ export default async function BrandCategoryPage({
         title={`${brand.name} ${cat.name}`}
         description={
           cat.description ??
-          `${cat.count} ${cat.name.toLowerCase()} piece${cat.count === 1 ? "" : "s"} from ${brand.name}, displayed at full scale across our Mangaluru showrooms.`
+          (cat.count > 0
+            ? `${cat.count} ${cat.name.toLowerCase()} piece${cat.count === 1 ? "" : "s"} from ${brand.name}, displayed at full scale across our Mangaluru showrooms.`
+            : `${brand.name} ${cat.name.toLowerCase()} are being added to the catalogue. Visit a showroom or ask us on WhatsApp for what is available today.`)
         }
-        heroImage={cat.image ?? undefined}
+        heroImage={cat.banner ?? cat.image ?? undefined}
+        heroVideo={cat.video ?? undefined}
+        heroPoster={cat.videoPoster ?? cat.banner ?? cat.image ?? undefined}
+        noHeroMedia={!cat.video && !cat.banner && !cat.image}
       />
     </main>
   );

@@ -98,6 +98,7 @@ export default async function ProductPage({
   }
 
   const whatsappNumber = await getWhatsAppOrderingNumber();
+  const orderVariants = await getProductVariants(slug);
   const related = await getRelatedProducts(product, 4);
 
   // Category crumbs link into the section tree that owns them —
@@ -293,7 +294,7 @@ export default async function ProductPage({
               </div>
 
               {/* Interactive Actions (WhatsApp CTA, Quantity, Size, Share) */}
-              <ProductInfoActions product={product} whatsappNumber={whatsappNumber} />
+              <ProductInfoActions product={product} whatsappNumber={whatsappNumber} variants={orderVariants} />
 
               {/* Trust Badges */}
               <div className="grid grid-cols-2 gap-4 pt-2 text-[11px] text-muted">
@@ -613,6 +614,7 @@ export default async function ProductPage({
         sku={product.sku}
         size={product.sizes[0]}
         whatsappNumber={whatsappNumber}
+        hasVariants={orderVariants.length > 0}
       />
     </div>
   );

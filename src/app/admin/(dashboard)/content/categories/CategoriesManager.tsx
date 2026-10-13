@@ -76,6 +76,7 @@ export function CategoriesManager({ permissions }: CategoriesManagerProps) {
           <p className="text-xs text-white/35">
             /{row.slug}
             {row.parent && <span> · under {row.parent.name}</span>}
+            {row.brand && <span> · {row.brand.name} only</span>}
           </p>
         </div>
       ),
